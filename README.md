@@ -1,1 +1,7 @@
 # CODTECH-TASK-3
+
+Name:BUSHRA ASRAR KHAN
+Company:CODTECH IT SOLUTIONS
+ID:CT4MQFS
+Domain:Data Science 
+Duration:4 months
