@@ -1,0 +1,161 @@
+import requests
+import pandas as pd
+from pathlib import Path
+
+def download_sentiment_data():
+    url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00331/sentiment%20labelled%20sentences.zip"
+    data_dir = Path("data/raw")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Download and extract data
+    response = requests.get(url)
+    zip_path = data_dir / "sentiment_data.zip"
+    
+    with open(zip_path, 'wb') as f:
+        f.write(response.content)
+    
+    # Extract and process (in a real project, you'd extract the zip)
+    # For now, we'll use a simplified version
+    data = {
+        'text': ['I love this product', 'This is terrible', 'It was okay', 'Amazing experience'],
+        'sentiment': [1, 0, 1, 1]
+    }
+    df = pd.DataFrame(data)
+    df.to_csv(data_dir / "sentiment_data.csv", index=False)
+    print("Data downloaded and saved successfully")
+
+if __name__ == "__main__":
+    download_sentiment_data()
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+import joblib
+from pathlib import Path
+
+def preprocess_data():
+    # Load data
+    data_path = Path("data/raw/sentiment_data.csv")
+    df = pd.read_csv(data_path)
+    
+    # Simple preprocessing
+    df['text'] = df['text'].str.lower().str.replace('[^\w\s]', '')
+    
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(
+        df['text'], df['sentiment'], test_size=0.2, random_state=42
+    )
+    
+    # Vectorize text
+    vectorizer = TfidfVectorizer(max_features=1000)
+    X_train_vec = vectorizer.fit_transform(X_train)
+    X_test_vec = vectorizer.transform(X_test)
+    
+    # Save processed data and vectorizer
+    processed_dir = Path("data/processed")
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    
+    joblib.dump(X_train_vec, processed_dir / "X_train.pkl")
+    joblib.dump(X_test_vec, processed_dir / "X_test.pkl")
+    joblib.dump(y_train, processed_dir / "y_train.pkl")
+    joblib.dump(y_test, processed_dir / "y_test.pkl")
+    joblib.dump(vectorizer, processed_dir / "vectorizer.pkl")
+    
+    print("Data preprocessing completed successfully")
+
+if __name__ == "__main__":
+    preprocess_data()
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+import joblib
+from pathlib import Path
+
+def train_model():
+    # Load processed data
+    processed_dir = Path("data/processed")
+    X_train = joblib.load(processed_dir / "X_train.pkl")
+    y_train = joblib.load(processed_dir / "y_train.pkl")
+    X_test = joblib.load(processed_dir / "X_test.pkl")
+    y_test = joblib.load(processed_dir / "y_test.pkl")
+    
+    # Train model
+    model = LogisticRegression(max_iter=1000)
+    model.fit(X_train, y_train)
+    
+    # Evaluate
+    y_pred = model.predict(X_test)
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Model accuracy: {accuracy:.2f}")
+    
+    # Save model
+    models_dir = Path("models")
+    models_dir.mkdir(exist_ok=True)
+    joblib.dump(model, models_dir / "sentiment_model.pkl")
+    print("Model trained and saved successfully")
+
+if __name__ == "__main__":
+    train_model()
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+from pathlib import Path
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+app = FastAPI(title="Sentiment Analysis API")
+
+# Load model and vectorizer
+model_path = Path("models/sentiment_model.pkl")
+vectorizer_path = Path("data/processed/vectorizer.pkl")
+
+model = joblib.load(model_path)
+vectorizer = joblib.load(vectorizer_path)
+
+class TextInput(BaseModel):
+    text: str
+
+class PredictionOutput(BaseModel):
+    sentiment: int
+    confidence: float
+    sentiment_label: str
+
+@app.post("/predict", response_model=PredictionOutput)
+def predict_sentiment(input: TextInput):
+    # Preprocess and vectorize
+    text = input.text.lower()
+    text_vector = vectorizer.transform([text])
+    
+    # Predict
+    proba = model.predict_proba(text_vector)[0]
+    prediction = model.predict(text_vector)[0]
+    confidence = max(proba)
+    
+    # Return result
+    return {
+        "sentiment": int(prediction),
+        "confidence": float(confidence),
+        "sentiment_label": "positive" if prediction == 1 else "negative"
+    }
+
+@app.get("/")
+def read_root():
+    return {"message": "Sentiment Analysis API - Send a POST request to /predict with text to analyze"}
+
+fastapi>=0.68.0
+uvicorn>=0.15.0
+scikit-learn>=0.24.2
+pandas>=1.3.0
+joblib>=1.0.1
+requests>=2.26.0
+python-multipart   
+uvicorn src.app:app --reload
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="src/templates")
+
+@app.get("/")
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
